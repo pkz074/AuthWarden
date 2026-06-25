@@ -1,0 +1,12 @@
+target/
+**/target/
+
+.env
+.env.*
+
+*.log
+.DS_Store
+
+.sqlx/
+
+plan.md

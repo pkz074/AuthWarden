@@ -27,21 +27,19 @@ pub async fn register(
         password_hash,
     };
 
-    // TODO
+    crate::db::users::create_user(&state.db, new_user).await?;
 
-    let _ = (&state.db, new_user);
-
-    Ok((StatusCode::CREATED, "user registration scaffold complete"))
+    Ok((StatusCode::CREATED, "user registered"))
 }
 
 fn validate_register_form(form: &RegisterForm) -> Result<(), AppError> {
-    // TODO
-
     if form.email.trim().is_empty() {
         return Err(AppError::BadRequest("email is required".to_string()));
     }
 
-    // TODO
+    if !form.email.trim().contains('@') {
+        return Err(AppError::BadRequest("must be a valid email".to_string()));
+    }
 
     if form.password.len() < 8 {
         return Err(AppError::BadRequest(

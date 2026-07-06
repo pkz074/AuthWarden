@@ -11,6 +11,9 @@ pub enum AppError {
     #[error("resource not found")]
     NotFound,
 
+    #[error("invalid email or password")]
+    Unauthorized,
+
     #[error("internal server error")]
     InternalServerError,
 }
@@ -20,6 +23,7 @@ impl IntoResponse for AppError {
         let status = match &self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

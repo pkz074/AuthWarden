@@ -8,6 +8,7 @@ use std::sync::Arc;
 mod config;
 mod db;
 mod errors;
+mod extractors;
 mod handlers;
 mod models;
 mod services;
@@ -33,11 +34,17 @@ async fn main() {
         .await
         .expect("failed to connect to db");
 
-    let state = Arc::new(AppState { db });
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
+    let state = Arc::new(AppState { db, jwt_secret });
 
     let app = Router::new()
         .route("/", get(handlers::pages::login_page))
         .route("/register", post(handlers::auth::register))
+        .route("/login", post(handlers::auth::login))
+        .route("/logout", post(handlers::sessions::logout))
+        .route("/refresh", post(handlers::sessions::refresh))
+        .route("/me", get(handlers::account::me))
         .route("/health", get(handlers::health::health))
         .route("/health/db", get(handlers::health::health_db))
         .with_state(state);

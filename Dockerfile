@@ -3,6 +3,7 @@ FROM rust:1-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY templates ./templates
 RUN cargo build --release
 
 FROM debian:bookworm-slim AS runtime
@@ -13,6 +14,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /app/target/release/authwarden /usr/local/bin/authwarden
+COPY templates ./templates
 
-EXPOSE 3000
+EXPOSE 8080
 CMD ["authwarden"]

@@ -6,10 +6,8 @@ use uuid::Uuid;
 pub struct RefreshSession {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub token_hash: String,
     pub expires_at: OffsetDateTime,
     pub revoked_at: Option<OffsetDateTime>,
-    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug)]

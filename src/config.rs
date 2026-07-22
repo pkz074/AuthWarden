@@ -3,6 +3,7 @@ use std::env;
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
+    pub redis_url: String,
 }
 
 impl AppConfig {
@@ -17,7 +18,14 @@ impl AppConfig {
             .parse()
             .expect("APP_PORT must be a valid number");
 
-        Self { host, port }
+        let redis_url =
+            env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
+        Self {
+            host,
+            port,
+            redis_url,
+        }
     }
 
     pub fn bind_addr(&self) -> String {

@@ -30,15 +30,17 @@ pub async fn register(
     Form(form): Form<RegisterForm>,
 ) -> Result<impl IntoResponse, AppError> {
     validate_register_form(&form)?;
+    let email = normalize_email(&form.email);
 
     let password_hash = password::hash_password(&form.password)?;
 
     let new_user = NewUser {
-        email: form.email.trim().to_lowercase(),
+        email,
         password_hash,
     };
 
-    crate::db::users::create_user(&state.db, new_user).await?;
+    let user = crate::db::users::create_user(&state.db, new_user).await?;
+    crate::db::audit_logs::record_auth_event(&state.db, Some(user.id), "user.registered").await;
 
     Ok((StatusCode::CREATED, "user registered"))
 }
@@ -47,7 +49,8 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
-    let email = form.email.trim().to_lowercase();
+    validate_login_form(&form)?;
+    let email = normalize_email(&form.email);
 
     let user = crate::db::users::find_user_by_email(&state.db, &email)
         .await?
@@ -71,6 +74,7 @@ pub async fn login(
     };
 
     crate::db::sessions::create_session(&state.db, new_session).await?;
+    crate::db::audit_logs::record_auth_event(&state.db, Some(user.id), "user.logged_in").await;
 
     let response = TokenPair {
         access_token,
@@ -80,19 +84,72 @@ pub async fn login(
     Ok(Json(response).into_response())
 }
 
+fn normalize_email(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
 fn validate_register_form(form: &RegisterForm) -> Result<(), AppError> {
-    if form.email.trim().is_empty() {
+    validate_email(&form.email)?;
+    validate_password(&form.password)?;
+
+    Ok(())
+}
+
+fn validate_login_form(form: &LoginForm) -> Result<(), AppError> {
+    validate_email(&form.email)?;
+
+    if form.password.is_empty() {
+        return Err(AppError::BadRequest("password is required".to_string()));
+    }
+
+    Ok(())
+}
+
+fn validate_email(email: &str) -> Result<(), AppError> {
+    let email = email.trim();
+
+    if email.is_empty() {
         return Err(AppError::BadRequest("email is required".to_string()));
     }
 
-    if !form.email.trim().contains('@') {
+    if email.len() > 254 {
+        return Err(AppError::BadRequest("email is too long".to_string()));
+    }
+
+    if email.chars().any(char::is_whitespace) {
         return Err(AppError::BadRequest("must be a valid email".to_string()));
     }
 
-    if form.password.len() < 8 {
+    let Some((local_part, domain)) = email.split_once('@') else {
+        return Err(AppError::BadRequest("must be a valid email".to_string()));
+    };
+
+    if local_part.is_empty()
+        || domain.is_empty()
+        || domain.contains('@')
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+        || !domain.contains('.')
+    {
+        return Err(AppError::BadRequest("must be a valid email".to_string()));
+    }
+
+    Ok(())
+}
+
+fn validate_password(password: &str) -> Result<(), AppError> {
+    if password.len() < 8 {
         return Err(AppError::BadRequest(
             "password must be at least 8 characters".to_string(),
         ));
+    }
+
+    if password.len() > 128 {
+        return Err(AppError::BadRequest("password is too long".to_string()));
+    }
+
+    if password.trim().is_empty() {
+        return Err(AppError::BadRequest("password is required".to_string()));
     }
 
     Ok(())

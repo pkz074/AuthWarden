@@ -19,6 +19,15 @@ pub async fn refresh(
     Form(form): Form<RefreshForm>,
 ) -> Result<Response, AppError> {
     let token_hash = refresh_tokens::hash_refresh_token(&form.refresh_token)?;
+
+    match crate::db::redis::is_refresh_token_revoked(&state.redis, &token_hash).await {
+        Ok(true) => return Err(AppError::Unauthorized),
+        Ok(false) => {}
+        Err(error) => {
+            tracing::warn!(?error, "failed to check revoked refresh token cache");
+        }
+    }
+
     let session = crate::db::sessions::find_session_by_token_hash(&state.db, &token_hash)
         .await?
         .ok_or(AppError::Unauthorized)?;
@@ -31,8 +40,6 @@ pub async fn refresh(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    crate::db::sessions::revoke_session(&state.db, session.id).await?;
-
     let access_token = token::issue_access_token(&user, &state.jwt_secret)?;
     let refresh_token = refresh_tokens::generate_refresh_token();
     let replacement_hash = refresh_tokens::hash_refresh_token(&refresh_token)?;
@@ -42,7 +49,26 @@ pub async fn refresh(
         expires_at: OffsetDateTime::now_utc() + Duration::days(30),
     };
 
-    crate::db::sessions::create_session(&state.db, replacement_session).await?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| AppError::InternalServerError)?;
+
+    crate::db::sessions::revoke_session_tx(&mut tx, session.id).await?;
+    crate::db::sessions::create_session_tx(&mut tx, replacement_session).await?;
+
+    tx.commit()
+        .await
+        .map_err(|_| AppError::InternalServerError)?;
+
+    if let Err(error) =
+        crate::db::redis::mark_refresh_token_revoked(&state.redis, &token_hash, session.expires_at)
+            .await
+    {
+        tracing::warn!(?error, "failed to cache revoked refresh token");
+    }
+    crate::db::audit_logs::record_auth_event(&state.db, Some(user.id), "session.refreshed").await;
 
     Ok(Json(TokenPair {
         access_token,
@@ -61,6 +87,18 @@ pub async fn logout(
         .ok_or(AppError::Unauthorized)?;
 
     crate::db::sessions::revoke_session(&state.db, session.id).await?;
+    if let Err(error) =
+        crate::db::redis::mark_refresh_token_revoked(&state.redis, &token_hash, session.expires_at)
+            .await
+    {
+        tracing::warn!(?error, "failed to cache revoked refresh token");
+    }
+    crate::db::audit_logs::record_auth_event(
+        &state.db,
+        Some(session.user_id),
+        "session.logged_out",
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

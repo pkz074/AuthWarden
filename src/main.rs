@@ -36,7 +36,14 @@ async fn main() {
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
-    let state = Arc::new(AppState { db, jwt_secret });
+    let redis =
+        redis::Client::open(config.redis_url.clone()).expect("failed to create redis client");
+
+    let state = Arc::new(AppState {
+        db,
+        redis,
+        jwt_secret,
+    });
 
     let app = Router::new()
         .route("/", get(handlers::pages::login_page))

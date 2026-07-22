@@ -8,12 +8,6 @@ pub struct LoginForm {
 }
 
 #[derive(Debug, Serialize)]
-pub struct TokenResponse {
-    pub access_token: String,
-    pub token_type: String,
-}
-
-#[derive(Debug, Serialize)]
 pub struct MeResponse {
     pub id: Uuid,
     pub email: String,

@@ -19,6 +19,11 @@ async fn main() {
         .await
         .expect("failed to connect to db");
 
+    sqlx::migrate!("./migrations")
+        .run(&db)
+        .await
+        .expect("failed to run migrations");
+
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
     let redis =

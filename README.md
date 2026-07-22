@@ -14,7 +14,7 @@ AuthWarden is a Rust authentication service built as a learning project and port
 - Logout with refresh-session revocation
 - Audit logs for register, login, refresh, and logout
 - Basic HTML login page scaffold
-- Docker Compose for local PostgreSQL and Redis
+- Docker Compose for the full local app stack
 
 ## Stack
 
@@ -28,21 +28,25 @@ AuthWarden is a Rust authentication service built as a learning project and port
 - JSON Web Tokens
 - Docker
 
-## Local Setup
+## Full Docker Stack
 
-Start PostgreSQL and Redis:
-
-```sh
-docker compose up -d
-```
-
-Run database migrations:
+Build and run AuthWarden, PostgreSQL, and Redis:
 
 ```sh
-DATABASE_URL=postgres://authwarden:authwarden@localhost:5432/authwarden sqlx migrate run
+docker compose up --build
 ```
 
-Start the app:
+The app is available at `http://127.0.0.1:8080`.
+
+## Local Development
+
+Start only PostgreSQL and Redis:
+
+```sh
+docker compose up -d postgres redis
+```
+
+Start the app locally:
 
 ```sh
 DATABASE_URL=postgres://authwarden:authwarden@localhost:5432/authwarden \
@@ -51,7 +55,15 @@ JWT_SECRET=replace-this-with-a-long-secret \
 cargo run
 ```
 
+Migrations run automatically when the app starts.
+
 The server listens on `http://127.0.0.1:8080` by default.
+
+Manual migration command, if needed:
+
+```sh
+DATABASE_URL=postgres://authwarden:authwarden@localhost:5432/authwarden sqlx migrate run
+```
 
 ## Environment
 
@@ -99,8 +111,22 @@ curl -s -X POST http://127.0.0.1:8080/login \
 ## Current Status
 
 Phase 1 and Phase 2 features are implemented and tested with Docker-backed integration coverage.
+Phase 3 includes Docker Compose, CI, GHCR image publishing, and Kubernetes deployment manifests.
+
+## Kubernetes
+
+Kubernetes manifests live in `k8s/`. They deploy the AuthWarden app and assume PostgreSQL and Redis are available as external or separately managed services.
+Ingress and TLS deployment notes are in `k8s/ingress-tls.md`.
+
+```sh
+cp k8s/secret.example.yaml k8s/secret.yaml
+kubectl apply -k k8s
+```
 
 ## Tests
+
+CI runs formatting, Clippy, unit tests, the Docker-backed integration flow, and a Docker image build on pushes and pull requests.
+Pushes to `main` publish the Docker image to GitHub Container Registry as `ghcr.io/pkz074/authwarden`.
 
 Run the unit tests:
 

@@ -10,3 +10,4 @@ target/
 .sqlx/
 
 plan.md
+k8s/secret.yaml

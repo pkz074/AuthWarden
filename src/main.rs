@@ -1,21 +1,6 @@
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use authwarden::{build_app, config::AppConfig, state::AppState};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
-
-mod config;
-mod db;
-mod errors;
-mod extractors;
-mod handlers;
-mod models;
-mod services;
-mod state;
-
-use config::AppConfig;
-use state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -45,16 +30,7 @@ async fn main() {
         jwt_secret,
     });
 
-    let app = Router::new()
-        .route("/", get(handlers::pages::login_page))
-        .route("/register", post(handlers::auth::register))
-        .route("/login", post(handlers::auth::login))
-        .route("/logout", post(handlers::sessions::logout))
-        .route("/refresh", post(handlers::sessions::refresh))
-        .route("/me", get(handlers::account::me))
-        .route("/health", get(handlers::health::health))
-        .route("/health/db", get(handlers::health::health_db))
-        .with_state(state);
+    let app = build_app(state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr())
         .await

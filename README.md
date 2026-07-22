@@ -98,4 +98,19 @@ curl -s -X POST http://127.0.0.1:8080/login \
 
 ## Current Status
 
-Phase 1 and Phase 2 features are implemented and manually tested with Docker. Automated integration tests are planned next.
+Phase 1 and Phase 2 features are implemented and tested with Docker-backed integration coverage.
+
+## Tests
+
+Run the unit tests:
+
+```sh
+cargo test --offline
+```
+
+Run the Docker-backed integration flow:
+
+```sh
+docker compose up -d
+cargo test --test auth_flow -- --ignored
+```

@@ -33,6 +33,7 @@ async fn main() {
         db,
         redis,
         jwt_secret,
+        oauth: config.oauth.clone(),
     });
 
     let app = build_app(state);

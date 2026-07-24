@@ -74,6 +74,12 @@ DATABASE_URL=postgres://authwarden:authwarden@localhost:5432/authwarden sqlx mig
 | `DATABASE_URL` | local Docker Postgres URL | PostgreSQL connection string |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection string |
 | `JWT_SECRET` | required | HMAC secret used to sign JWT access tokens |
+| `GITHUB_CLIENT_ID` | unset | GitHub OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | unset | GitHub OAuth app client secret |
+| `GITHUB_REDIRECT_URI` | unset | GitHub OAuth callback URL |
+| `GOOGLE_CLIENT_ID` | unset | Google OAuth app client ID |
+| `GOOGLE_CLIENT_SECRET` | unset | Google OAuth app client secret |
+| `GOOGLE_REDIRECT_URI` | unset | Google OAuth callback URL |
 
 ## Endpoints
 

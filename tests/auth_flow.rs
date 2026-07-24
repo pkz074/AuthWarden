@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use authwarden::{build_app, state::AppState};
+use authwarden::{build_app, config::OAuthConfig, services::oauth_state, state::AppState};
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -34,6 +34,10 @@ async fn auth_flow_covers_phase_1_and_phase_2() {
         db: db.clone(),
         redis: redis.clone(),
         jwt_secret: JWT_SECRET.to_string(),
+        oauth: OAuthConfig {
+            github: None,
+            google: None,
+        },
     });
 
     let email = format!("integration-{}@authwarden.test", Uuid::new_v4());
@@ -100,6 +104,7 @@ async fn auth_flow_covers_phase_1_and_phase_2() {
 
     assert_audit_events(&db, &email).await;
     assert_revoked_token_keys_exist(&redis).await;
+    assert_oauth_state_is_consumed(&redis).await;
 }
 
 fn post_form(path: &str, fields: &[(&str, &str)]) -> Request<Body> {
@@ -159,4 +164,32 @@ async fn assert_revoked_token_keys_exist(redis: &redis::Client) {
         .expect("read redis revoked-token keys");
 
     assert!(keys.len() >= 2);
+}
+
+async fn assert_oauth_state_is_consumed(redis: &redis::Client) {
+    let state = oauth_state::generate_oauth_state();
+
+    oauth_state::store_oauth_state(redis, &state, "github")
+        .await
+        .unwrap();
+    oauth_state::validate_oauth_state(redis, &state, "github")
+        .await
+        .unwrap();
+
+    let replay = oauth_state::validate_oauth_state(redis, &state, "github").await;
+    assert!(replay.is_err());
+
+    let wrong_provider_state = oauth_state::generate_oauth_state();
+    oauth_state::store_oauth_state(redis, &wrong_provider_state, "github")
+        .await
+        .unwrap();
+
+    let wrong_provider =
+        oauth_state::validate_oauth_state(redis, &wrong_provider_state, "google").await;
+    assert!(wrong_provider.is_err());
+
+    let missing_state =
+        oauth_state::validate_oauth_state(redis, &oauth_state::generate_oauth_state(), "github")
+            .await;
+    assert!(missing_state.is_err());
 }

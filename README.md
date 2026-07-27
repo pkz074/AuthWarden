@@ -1,6 +1,6 @@
 # AuthWarden
 
-AuthWarden is a Rust authentication service built as a learning project and portfolio backend. It implements email/password auth with PostgreSQL-backed users, Argon2 password hashing, JWT access tokens, refresh-token rotation, Redis-backed revocation caching, and audit logging.
+AuthWarden is a Rust authentication service built as a learning project and portfolio backend. It implements email/password auth with PostgreSQL-backed users, Argon2 password hashing, JWT access tokens, refresh-token rotation, Redis-backed revocation caching, OAuth login, and audit logging.
 
 ## Features
 
@@ -12,8 +12,9 @@ AuthWarden is a Rust authentication service built as a learning project and port
 - Transactional refresh-token rotation
 - Redis cache for revoked refresh-token hashes
 - Logout with refresh-session revocation
+- GitHub and Google OAuth login
 - Audit logs for register, login, refresh, and logout
-- Basic HTML login page scaffold
+- Basic HTML login and register pages
 - Docker Compose for the full local app stack
 
 ## Stack
@@ -86,10 +87,16 @@ DATABASE_URL=postgres://authwarden:authwarden@localhost:5432/authwarden sqlx mig
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/` | Login page scaffold |
+| `GET` | `/login` | Login page |
+| `GET` | `/register` | Register page |
 | `GET` | `/health` | Basic health check |
 | `GET` | `/health/db` | PostgreSQL health check |
 | `POST` | `/register` | Create a user |
 | `POST` | `/login` | Issue access and refresh tokens |
+| `GET` | `/auth/github` | Start GitHub OAuth login |
+| `GET` | `/auth/github/callback` | Complete GitHub OAuth login |
+| `GET` | `/auth/google` | Start Google OAuth login |
+| `GET` | `/auth/google/callback` | Complete Google OAuth login |
 | `POST` | `/refresh` | Rotate a refresh token and issue a new token pair |
 | `POST` | `/logout` | Revoke a refresh session |
 | `GET` | `/me` | Return the authenticated user |
@@ -118,6 +125,7 @@ curl -s -X POST http://127.0.0.1:8080/login \
 
 Phase 1 and Phase 2 features are implemented and tested with Docker-backed integration coverage.
 Phase 3 includes Docker Compose, CI, GHCR image publishing, and Kubernetes deployment manifests.
+Phase 4 includes GitHub and Google OAuth provider login paths.
 
 ## Kubernetes
 

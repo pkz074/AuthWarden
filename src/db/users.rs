@@ -23,6 +23,22 @@ pub async fn create_user(pool: &PgPool, new_user: NewUser) -> Result<User, AppEr
     Ok(user)
 }
 
+pub async fn create_oauth_user(pool: &PgPool, email: String) -> Result<User, AppError> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        INSERT INTO users (email, password_hash)
+        VALUES ($1, NULL)
+        RETURNING id, email, password_hash
+        "#,
+    )
+    .bind(email)
+    .fetch_one(pool)
+    .await
+    .map_err(map_create_user_error)?;
+
+    Ok(user)
+}
+
 fn map_create_user_error(error: SqlxError) -> AppError {
     if let SqlxError::Database(database_error) = &error
         && database_error.code().as_deref() == Some("23505")

@@ -36,7 +36,7 @@ pub async fn register(
 
     let new_user = NewUser {
         email,
-        password_hash,
+        password_hash: Some(password_hash),
     };
 
     let user = crate::db::users::create_user(&state.db, new_user).await?;
@@ -56,7 +56,11 @@ pub async fn login(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let password_is_valid = password::verify_password(&form.password, &user.password_hash)?;
+    let Some(password_hash) = user.password_hash.as_deref() else {
+        return Err(AppError::Unauthorized);
+    };
+
+    let password_is_valid = password::verify_password(&form.password, password_hash)?;
 
     if !password_is_valid {
         return Err(AppError::Unauthorized);

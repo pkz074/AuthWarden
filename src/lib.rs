@@ -18,8 +18,24 @@ use state::AppState;
 pub fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(handlers::pages::login_page))
-        .route("/register", post(handlers::auth::register))
-        .route("/login", post(handlers::auth::login))
+        .route(
+            "/register",
+            get(handlers::pages::register_page).post(handlers::auth::register),
+        )
+        .route(
+            "/login",
+            get(handlers::pages::login_page).post(handlers::auth::login),
+        )
+        .route("/auth/github", get(handlers::oauth::github_login))
+        .route(
+            "/auth/github/callback",
+            get(handlers::oauth::github_callback),
+        )
+        .route("/auth/google", get(handlers::oauth::google_login))
+        .route(
+            "/auth/google/callback",
+            get(handlers::oauth::google_callback),
+        )
         .route("/logout", post(handlers::sessions::logout))
         .route("/refresh", post(handlers::sessions::refresh))
         .route("/me", get(handlers::account::me))

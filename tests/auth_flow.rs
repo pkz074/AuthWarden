@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use authwarden::{build_app, config::OAuthConfig, services::oauth_state, state::AppState};
+use authwarden::{
+    build_app,
+    config::{OAuthConfig, OAuthProviderConfig},
+    services::oauth_state,
+    state::AppState,
+};
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -17,7 +22,7 @@ const JWT_SECRET: &str = "authwarden-integration-test-secret";
 
 #[tokio::test]
 #[ignore = "requires Docker Postgres and Redis"]
-async fn auth_flow_covers_phase_1_and_phase_2() {
+async fn auth_flow_covers_core_auth_and_oauth_entrypoints() {
     let db = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
@@ -57,6 +62,20 @@ async fn auth_flow_covers_phase_1_and_phase_2() {
     let duplicate = post_form("/register", &[("email", &email), ("password", password)]);
     let response = build_app(state.clone()).oneshot(duplicate).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let oauth_only_email = format!("oauth-only-{}@authwarden.test", Uuid::new_v4());
+    authwarden::db::users::create_oauth_user(&db, oauth_only_email.clone())
+        .await
+        .unwrap();
+    let oauth_only_login = post_form(
+        "/login",
+        &[("email", &oauth_only_email), ("password", password)],
+    );
+    let response = build_app(state.clone())
+        .oneshot(oauth_only_login)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let login = post_form("/login", &[("email", &email), ("password", password)]);
     let response = build_app(state.clone()).oneshot(login).await.unwrap();
@@ -105,6 +124,41 @@ async fn auth_flow_covers_phase_1_and_phase_2() {
     assert_audit_events(&db, &email).await;
     assert_revoked_token_keys_exist(&redis).await;
     assert_oauth_state_is_consumed(&redis).await;
+    assert_auth_pages_render(state.clone()).await;
+    assert_oauth_login_redirect_stores_state(
+        db.clone(),
+        redis.clone(),
+        OAuthConfig {
+            github: Some(OAuthProviderConfig {
+                client_id: "github-client-id".to_string(),
+                client_secret: "github-client-secret".to_string(),
+                redirect_uri: "http://localhost:8080/auth/github/callback".to_string(),
+            }),
+            google: None,
+        },
+        "/auth/github",
+        "https://github.com/login/oauth/authorize",
+        "github-client-id",
+        "github",
+    )
+    .await;
+    assert_oauth_login_redirect_stores_state(
+        db,
+        redis,
+        OAuthConfig {
+            github: None,
+            google: Some(OAuthProviderConfig {
+                client_id: "google-client-id".to_string(),
+                client_secret: "google-client-secret".to_string(),
+                redirect_uri: "http://localhost:8080/auth/google/callback".to_string(),
+            }),
+        },
+        "/auth/google",
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "google-client-id",
+        "google",
+    )
+    .await;
 }
 
 fn post_form(path: &str, fields: &[(&str, &str)]) -> Request<Body> {
@@ -125,6 +179,38 @@ fn post_form(path: &str, fields: &[(&str, &str)]) -> Request<Body> {
 async fn response_json(response: axum::response::Response) -> Value {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&body).unwrap()
+}
+
+async fn response_text(response: axum::response::Response) -> String {
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    String::from_utf8(body.to_vec()).unwrap()
+}
+
+async fn assert_auth_pages_render(state: Arc<AppState>) {
+    let login = Request::builder()
+        .method("GET")
+        .uri("/login")
+        .body(Body::empty())
+        .unwrap();
+    let response = build_app(state.clone()).oneshot(login).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_text(response).await;
+    assert!(body.contains("Continue with GitHub"));
+    assert!(body.contains("Continue with Google"));
+    assert!(body.contains("/auth/github"));
+    assert!(body.contains("/auth/google"));
+
+    let register = Request::builder()
+        .method("GET")
+        .uri("/register")
+        .body(Body::empty())
+        .unwrap();
+    let response = build_app(state).oneshot(register).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_text(response).await;
+    assert!(body.contains("Create your AuthWarden account"));
+    assert!(body.contains("Continue with GitHub"));
+    assert!(body.contains("Continue with Google"));
 }
 
 async fn assert_audit_events(db: &PgPool, email: &str) {
@@ -192,4 +278,60 @@ async fn assert_oauth_state_is_consumed(redis: &redis::Client) {
         oauth_state::validate_oauth_state(redis, &oauth_state::generate_oauth_state(), "github")
             .await;
     assert!(missing_state.is_err());
+}
+
+async fn assert_oauth_login_redirect_stores_state(
+    db: PgPool,
+    redis: redis::Client,
+    oauth: OAuthConfig,
+    path: &str,
+    expected_authorize_url: &str,
+    expected_client_id: &str,
+    expected_provider: &str,
+) {
+    let state = Arc::new(AppState {
+        db,
+        redis: redis.clone(),
+        jwt_secret: JWT_SECRET.to_string(),
+        oauth,
+    });
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(path)
+        .body(Body::empty())
+        .unwrap();
+    let response = build_app(state).oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let location = response
+        .headers()
+        .get("location")
+        .expect("redirect location header")
+        .to_str()
+        .unwrap();
+    let location = url::Url::parse(location).unwrap();
+    assert_eq!(
+        location.as_str().split('?').next().unwrap(),
+        expected_authorize_url
+    );
+    assert_eq!(
+        location
+            .query_pairs()
+            .find(|(key, _)| key == "client_id")
+            .map(|(_, value)| value.to_string())
+            .as_deref(),
+        Some(expected_client_id)
+    );
+
+    let state_value = location
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+        .expect("oauth state query parameter");
+
+    oauth_state::validate_oauth_state(&redis, &state_value, expected_provider)
+        .await
+        .unwrap();
 }

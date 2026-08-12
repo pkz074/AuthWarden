@@ -27,3 +27,46 @@ pub fn decode_access_token(token: &str, secret: &str) -> Result<Claims, AppError
         .map(|token_data| token_data.claims)
         .map_err(|_| AppError::Unauthorized)
 }
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn issued_token_decodes_with_same_secret() {
+        let user = User {
+            id: Uuid::new_v4(),
+            email: "token-user@authwarden.test".to_string(),
+            password_hash: None,
+        };
+
+        let token = issue_access_token(&user, "test-secret").unwrap();
+        let claims = decode_access_token(&token, "test-secret").unwrap();
+
+        assert_eq!(claims.sub, user.id);
+        assert_eq!(claims.email, user.email);
+    }
+
+    #[test]
+    fn issued_token_rejects_wrong_secret() {
+        let user = User {
+            id: Uuid::new_v4(),
+            email: "token-user@authwarden.test".to_string(),
+            password_hash: None,
+        };
+
+        let token = issue_access_token(&user, "test-secret").unwrap();
+        let result = decode_access_token(&token, "wrong-secret");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn malformed_token_is_unauthorized() {
+        let result = decode_access_token("not-a-jwt", "test-secret");
+
+        assert!(result.is_err());
+    }
+}

@@ -86,3 +86,110 @@ impl OAuthProviderConfig {
 fn env_var_non_empty(key: &str) -> Option<String> {
     env::var(key).ok().filter(|value| !value.trim().is_empty())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn oauth_provider_is_disabled_when_any_required_value_is_missing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_oauth_env();
+
+        set_env("GITHUB_CLIENT_ID", "github-client-id");
+        set_env("GITHUB_CLIENT_SECRET", "github-client-secret");
+
+        let config = OAuthConfig::from_env();
+
+        assert!(config.github.is_none());
+    }
+
+    #[test]
+    fn oauth_provider_is_disabled_when_required_value_is_blank() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_oauth_env();
+
+        set_env("GOOGLE_CLIENT_ID", "google-client-id");
+        set_env("GOOGLE_CLIENT_SECRET", "   ");
+        set_env(
+            "GOOGLE_REDIRECT_URI",
+            "http://localhost:8080/auth/google/callback",
+        );
+
+        let config = OAuthConfig::from_env();
+
+        assert!(config.google.is_none());
+    }
+
+    #[test]
+    fn oauth_provider_is_loaded_when_all_values_are_present() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_oauth_env();
+
+        set_env("GITHUB_CLIENT_ID", "github-client-id");
+        set_env("GITHUB_CLIENT_SECRET", "github-client-secret");
+        set_env(
+            "GITHUB_REDIRECT_URI",
+            "http://localhost:8080/auth/github/callback",
+        );
+
+        let config = OAuthConfig::from_env();
+        let github = config.github.unwrap();
+
+        assert_eq!(github.client_id, "github-client-id");
+        assert_eq!(github.client_secret, "github-client-secret");
+        assert_eq!(
+            github.redirect_uri,
+            "http://localhost:8080/auth/github/callback"
+        );
+    }
+
+    #[test]
+    fn app_config_uses_defaults_and_env_overrides() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_app_env();
+        clear_oauth_env();
+
+        set_env("APP_HOST", "0.0.0.0");
+        set_env("APP_PORT", "9090");
+        set_env("REDIS_URL", "redis://localhost:6380");
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 9090);
+        assert_eq!(config.redis_url, "redis://localhost:6380");
+        assert_eq!(config.bind_addr(), "0.0.0.0:9090");
+    }
+
+    fn clear_oauth_env() {
+        remove_env("GITHUB_CLIENT_ID");
+        remove_env("GITHUB_CLIENT_SECRET");
+        remove_env("GITHUB_REDIRECT_URI");
+        remove_env("GOOGLE_CLIENT_ID");
+        remove_env("GOOGLE_CLIENT_SECRET");
+        remove_env("GOOGLE_REDIRECT_URI");
+    }
+
+    fn clear_app_env() {
+        remove_env("APP_HOST");
+        remove_env("APP_PORT");
+        remove_env("REDIS_URL");
+    }
+
+    fn set_env(key: &str, value: &str) {
+        unsafe {
+            env::set_var(key, value);
+        }
+    }
+
+    fn remove_env(key: &str) {
+        unsafe {
+            env::remove_var(key);
+        }
+    }
+}

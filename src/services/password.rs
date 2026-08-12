@@ -21,3 +21,29 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, AppE
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verifies_matching_password() {
+        let hash = hash_password("Password123").unwrap();
+
+        assert!(verify_password("Password123", &hash).unwrap());
+    }
+
+    #[test]
+    fn rejects_wrong_password() {
+        let hash = hash_password("Password123").unwrap();
+
+        assert!(!verify_password("WrongPassword123", &hash).unwrap());
+    }
+
+    #[test]
+    fn rejects_malformed_password_hash() {
+        let result = verify_password("Password123", "not-a-password-hash");
+
+        assert!(result.is_err());
+    }
+}

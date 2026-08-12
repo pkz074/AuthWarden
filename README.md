@@ -179,7 +179,7 @@ Run the Docker-backed integration flow:
 
 ```sh
 docker compose up -d postgres redis
-cargo test --test auth_flow -- --ignored
+cargo test --tests -- --ignored
 ```
 
 Run the main local quality checks:
@@ -188,6 +188,21 @@ Run the main local quality checks:
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+```
+
+Generate line coverage:
+
+```sh
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+make coverage
+```
+
+Run coverage including the Docker-backed ignored integration test:
+
+```sh
+docker compose up -d postgres redis
+make coverage-all
 ```
 
 ## Deployment

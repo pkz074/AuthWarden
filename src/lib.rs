@@ -1,5 +1,5 @@
 use axum::{
-    Router,
+    Router, middleware as axum_middleware,
     routing::{get, post},
 };
 use std::sync::Arc;
@@ -9,6 +9,7 @@ pub mod db;
 pub mod errors;
 pub mod extractors;
 pub mod handlers;
+pub mod middleware;
 pub mod models;
 pub mod services;
 pub mod state;
@@ -41,5 +42,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/me", get(handlers::account::me))
         .route("/health", get(handlers::health::health))
         .route("/health/db", get(handlers::health::health_db))
+        .layer(axum_middleware::from_fn(
+            middleware::security_headers::set_security_headers,
+        ))
         .with_state(state)
 }

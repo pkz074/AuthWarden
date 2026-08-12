@@ -35,6 +35,22 @@ struct GitHubEmailResponse {
     verified: bool,
 }
 
+struct GitHubApiEndpoints<'a> {
+    token_url: &'a str,
+    user_url: &'a str,
+    emails_url: &'a str,
+}
+
+impl Default for GitHubApiEndpoints<'static> {
+    fn default() -> Self {
+        Self {
+            token_url: GITHUB_TOKEN_URL,
+            user_url: GITHUB_USER_URL,
+            emails_url: GITHUB_EMAILS_URL,
+        }
+    }
+}
+
 pub fn authorize_url(config: &OAuthProviderConfig, state: &str) -> Result<String, AppError> {
     let mut url = Url::parse(GITHUB_AUTHORIZE_URL).map_err(|_| AppError::InternalServerError)?;
 
@@ -52,8 +68,23 @@ pub async fn exchange_code_for_access_token(
     config: &OAuthProviderConfig,
     code: &str,
 ) -> Result<String, AppError> {
+    exchange_code_for_access_token_with_url(
+        client,
+        config,
+        code,
+        GitHubApiEndpoints::default().token_url,
+    )
+    .await
+}
+
+async fn exchange_code_for_access_token_with_url(
+    client: &Client,
+    config: &OAuthProviderConfig,
+    code: &str,
+    token_url: &str,
+) -> Result<String, AppError> {
     let response = client
-        .post(GITHUB_TOKEN_URL)
+        .post(token_url)
         .header("Accept", "application/json")
         .form(&[
             ("client_id", config.client_id.as_str()),
@@ -82,8 +113,16 @@ pub async fn exchange_code_for_access_token(
 }
 
 pub async fn fetch_profile(client: &Client, access_token: &str) -> Result<GitHubProfile, AppError> {
+    fetch_profile_with_endpoints(client, access_token, GitHubApiEndpoints::default()).await
+}
+
+async fn fetch_profile_with_endpoints(
+    client: &Client,
+    access_token: &str,
+    endpoints: GitHubApiEndpoints<'_>,
+) -> Result<GitHubProfile, AppError> {
     let user = client
-        .get(GITHUB_USER_URL)
+        .get(endpoints.user_url)
         .bearer_auth(access_token)
         .header("User-Agent", GITHUB_USER_AGENT)
         .send()
@@ -100,7 +139,7 @@ pub async fn fetch_profile(client: &Client, access_token: &str) -> Result<GitHub
         .map_err(|_| AppError::Unauthorized)?;
 
     let emails = client
-        .get(GITHUB_EMAILS_URL)
+        .get(endpoints.emails_url)
         .bearer_auth(access_token)
         .header("User-Agent", GITHUB_USER_AGENT)
         .send()
@@ -130,6 +169,14 @@ pub async fn fetch_profile(client: &Client, access_token: &str) -> Result<GitHub
 
 #[cfg(test)]
 mod tests {
+    use axum::{
+        Json, Router,
+        http::StatusCode,
+        routing::{get, post},
+    };
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
     use super::*;
 
     #[test]
@@ -146,5 +193,202 @@ mod tests {
         assert!(url.contains("client_id=client-id"));
         assert!(url.contains("scope=user%3Aemail"));
         assert!(url.contains("state=state-token"));
+    }
+
+    #[tokio::test]
+    async fn exchanges_code_for_access_token() {
+        let server = spawn_server(Router::new().route(
+            "/token",
+            post(|| async { Json(json!({ "access_token": "github-token" })) }),
+        ))
+        .await;
+        let config = test_config();
+        let client = Client::new();
+
+        let token = exchange_code_for_access_token_with_url(
+            &client,
+            &config,
+            "github-code",
+            &format!("{server}/token"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(token, "github-token");
+    }
+
+    #[tokio::test]
+    async fn rejects_failed_token_exchange() {
+        let server = spawn_server(Router::new().route(
+            "/token",
+            post(|| async { (StatusCode::BAD_REQUEST, "bad code") }),
+        ))
+        .await;
+        let config = test_config();
+        let client = Client::new();
+
+        let result = exchange_code_for_access_token_with_url(
+            &client,
+            &config,
+            "github-code",
+            &format!("{server}/token"),
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_token_response() {
+        let server = spawn_server(Router::new().route(
+            "/token",
+            post(|| async { Json(json!({ "not_access_token": "missing" })) }),
+        ))
+        .await;
+        let config = test_config();
+        let client = Client::new();
+
+        let result = exchange_code_for_access_token_with_url(
+            &client,
+            &config,
+            "github-code",
+            &format!("{server}/token"),
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetches_verified_primary_profile_email() {
+        let server = spawn_server(
+            Router::new()
+                .route("/user", get(|| async { Json(json!({ "id": 42 })) }))
+                .route(
+                    "/emails",
+                    get(|| async {
+                        Json(json!([
+                            { "email": "secondary@example.com", "primary": false, "verified": true },
+                            { "email": "primary@example.com", "primary": true, "verified": true }
+                        ]))
+                    }),
+                ),
+        )
+        .await;
+        let client = Client::new();
+
+        let profile = fetch_profile_with_endpoints(
+            &client,
+            "github-token",
+            GitHubApiEndpoints {
+                token_url: "",
+                user_url: &format!("{server}/user"),
+                emails_url: &format!("{server}/emails"),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(profile.provider_user_id, "42");
+        assert_eq!(profile.email, "primary@example.com");
+    }
+
+    #[tokio::test]
+    async fn rejects_profile_without_verified_primary_email() {
+        let server = spawn_server(
+            Router::new()
+                .route("/user", get(|| async { Json(json!({ "id": 42 })) }))
+                .route(
+                    "/emails",
+                    get(|| async {
+                        Json(json!([
+                            { "email": "primary@example.com", "primary": true, "verified": false }
+                        ]))
+                    }),
+                ),
+        )
+        .await;
+        let client = Client::new();
+
+        let result = fetch_profile_with_endpoints(
+            &client,
+            "github-token",
+            GitHubApiEndpoints {
+                token_url: "",
+                user_url: &format!("{server}/user"),
+                emails_url: &format!("{server}/emails"),
+            },
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_profile_response() {
+        let server = spawn_server(
+            Router::new().route("/user", get(|| async { Json(json!({ "not_id": 42 })) })),
+        )
+        .await;
+        let client = Client::new();
+
+        let result = fetch_profile_with_endpoints(
+            &client,
+            "github-token",
+            GitHubApiEndpoints {
+                token_url: "",
+                user_url: &format!("{server}/user"),
+                emails_url: &format!("{server}/emails"),
+            },
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn provider_timeout_is_unauthorized() {
+        let server = spawn_server(Router::new().route("/user", get(slow_response))).await;
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_millis(1))
+            .build()
+            .unwrap();
+
+        let result = fetch_profile_with_endpoints(
+            &client,
+            "github-token",
+            GitHubApiEndpoints {
+                token_url: "",
+                user_url: &format!("{server}/user"),
+                emails_url: &format!("{server}/emails"),
+            },
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    async fn spawn_server(router: Router) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        format!("http://{addr}")
+    }
+
+    async fn slow_response() -> Json<serde_json::Value> {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        Json(json!({ "id": 42 }))
+    }
+
+    fn test_config() -> OAuthProviderConfig {
+        OAuthProviderConfig {
+            client_id: "client-id".to_string(),
+            client_secret: "secret".to_string(),
+            redirect_uri: "http://localhost:8080/auth/github/callback".to_string(),
+        }
     }
 }

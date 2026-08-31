@@ -45,5 +45,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .layer(axum_middleware::from_fn(
             middleware::security_headers::set_security_headers,
         ))
+        .layer(axum_middleware::from_fn(
+            middleware::request_id::add_request_id_and_log,
+        ))
         .with_state(state)
 }

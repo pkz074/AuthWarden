@@ -62,7 +62,7 @@ jobs:
         run: cargo test
 
       - name: Run integration tests
-        run: cargo test --test auth_flow -- --ignored
+        run: cargo test --tests -- --ignored
 
   docker:
     name: Docker image build

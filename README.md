@@ -43,6 +43,7 @@ Axum router
 - Refresh-token rotation
 - Logout and refresh-session revocation
 - Redis revocation cache
+- Redis-backed rate limiting for sensitive auth endpoints
 - Audit logs for auth/session events
 - HTML login and register pages
 - Docker Compose local stack
@@ -222,7 +223,6 @@ CI runs formatting, Clippy, unit tests, the Docker-backed integration flow, and 
 
 - Security headers
 - Request IDs and structured request logs
-- Redis-backed rate limiting
 - Password login lockout
 - Explicit CORS policy
 - Prometheus metrics

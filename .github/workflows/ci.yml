@@ -58,6 +58,12 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run dependency security audit
+        run: cargo audit --ignore RUSTSEC-2023-0071
+
       - name: Run unit tests
         run: cargo test
 

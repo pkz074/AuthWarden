@@ -84,5 +84,6 @@ fn test_state() -> Arc<AppState> {
             github: None,
             google: None,
         },
+        metrics: Default::default(),
     })
 }

@@ -49,11 +49,18 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
-    validate_login_form(&form)?;
+    if let Err(error) = validate_login_form(&form) {
+        state.metrics.record_password_auth_failure();
+        return Err(error);
+    }
+
     let email = normalize_email(&form.email);
 
     match login_lockout::is_login_locked(&state.redis, &email).await {
-        Ok(true) => return Err(AppError::TooManyRequests),
+        Ok(true) => {
+            state.metrics.record_password_auth_failure();
+            return Err(AppError::TooManyRequests);
+        }
         Ok(false) => {}
         Err(error) => {
             tracing::warn!(?error, email, "failed to check password login lockout");
@@ -62,11 +69,13 @@ pub async fn login(
 
     let Some(user) = crate::db::users::find_user_by_email(&state.db, &email).await? else {
         record_failed_login(&state, &email).await;
+        state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     };
 
     let Some(password_hash) = user.password_hash.as_deref() else {
         record_failed_login(&state, &email).await;
+        state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     };
 
@@ -74,6 +83,7 @@ pub async fn login(
 
     if !password_is_valid {
         record_failed_login(&state, &email).await;
+        state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     }
 
@@ -94,6 +104,7 @@ pub async fn login(
 
     crate::db::sessions::create_session(&state.db, new_session).await?;
     crate::db::audit_logs::record_auth_event(&state.db, Some(user.id), "user.logged_in").await;
+    state.metrics.record_password_auth_success();
 
     let response = TokenPair {
         access_token,

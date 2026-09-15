@@ -9,6 +9,7 @@ pub mod db;
 pub mod errors;
 pub mod extractors;
 pub mod handlers;
+pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod services;
@@ -40,8 +41,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/logout", post(handlers::sessions::logout))
         .route("/refresh", post(handlers::sessions::refresh))
         .route("/me", get(handlers::account::me))
+        .route("/metrics", get(handlers::metrics::metrics))
         .route("/health", get(handlers::health::health))
         .route("/health/db", get(handlers::health::health_db))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::metrics::record_http_metrics,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::rate_limit::rate_limit_sensitive_routes,

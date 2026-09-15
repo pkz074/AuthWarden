@@ -46,6 +46,7 @@ Axum router
 - Redis-backed rate limiting for sensitive auth endpoints
 - Redis-backed password login lockout
 - Explicit allowlist-based CORS policy
+- Prometheus-compatible `/metrics` endpoint
 - Audit logs for auth/session events
 - HTML login and register pages
 - Docker Compose local stack
@@ -83,6 +84,7 @@ Axum router
 | `POST` | `/refresh` | Rotate a refresh token |
 | `POST` | `/logout` | Revoke a refresh session |
 | `GET` | `/me` | Return the authenticated user |
+| `GET` | `/metrics` | Prometheus-compatible metrics |
 | `GET` | `/health` | Basic health check |
 | `GET` | `/health/db` | PostgreSQL health check |
 
@@ -194,6 +196,15 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
+Run the dependency security audit:
+
+```sh
+cargo install cargo-audit --locked
+make audit
+```
+
+The audit ignores `RUSTSEC-2023-0071` because the affected `rsa` crate is not in AuthWarden's active dependency tree. It appears in `Cargo.lock` through SQLx optional MySQL lockfile metadata, while this service builds SQLx with only PostgreSQL enabled.
+
 Generate line coverage:
 
 ```sh
@@ -226,5 +237,3 @@ CI runs formatting, Clippy, unit tests, the Docker-backed integration flow, and 
 
 - Security headers
 - Request IDs and structured request logs
-- Prometheus metrics
-- Dependency security audit

@@ -34,6 +34,7 @@ async fn responses_include_security_headers() {
             github: None,
             google: None,
         },
+        metrics: Default::default(),
     });
 
     let request = Request::builder()
@@ -76,6 +77,7 @@ async fn error_responses_include_security_headers() {
             github: None,
             google: None,
         },
+        metrics: Default::default(),
     });
 
     let request = Request::builder()

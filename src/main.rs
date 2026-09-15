@@ -35,6 +35,7 @@ async fn main() {
         jwt_secret,
         cors: config.cors.clone(),
         oauth: config.oauth.clone(),
+        metrics: Default::default(),
     });
 
     let app = build_app(state);

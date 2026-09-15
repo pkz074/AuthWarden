@@ -109,6 +109,7 @@ fn test_state(allowed_origins: Vec<String>) -> Arc<AppState> {
             github: None,
             google: None,
         },
+        metrics: Default::default(),
     })
 }
 

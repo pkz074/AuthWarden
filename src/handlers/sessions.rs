@@ -69,6 +69,7 @@ pub async fn refresh(
         tracing::warn!(?error, "failed to cache revoked refresh token");
     }
     crate::db::audit_logs::record_auth_event(&state.db, Some(user.id), "session.refreshed").await;
+    state.metrics.record_refresh_rotation();
 
     Ok(Json(TokenPair {
         access_token,
@@ -99,6 +100,7 @@ pub async fn logout(
         "session.logged_out",
     )
     .await;
+    state.metrics.record_logout();
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

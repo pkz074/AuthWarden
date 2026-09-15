@@ -47,6 +47,7 @@ pub fn app_state(db: PgPool, redis: redis::Client, oauth: OAuthConfig) -> Arc<Ap
             allowed_origins: vec![],
         },
         oauth,
+        metrics: Default::default(),
     })
 }
 

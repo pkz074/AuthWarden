@@ -71,6 +71,7 @@ pub async fn github_callback(
     let response = issue_session_tokens(&state, &user).await?;
 
     db::audit_logs::record_auth_event(&state.db, Some(user.id), "oauth.github_login").await;
+    state.metrics.record_oauth_auth_success();
 
     Ok(Json(response).into_response())
 }
@@ -120,6 +121,7 @@ pub async fn google_callback(
     let response = issue_session_tokens(&state, &user).await?;
 
     db::audit_logs::record_auth_event(&state.db, Some(user.id), "oauth.google_login").await;
+    state.metrics.record_oauth_auth_success();
 
     Ok(Json(response).into_response())
 }

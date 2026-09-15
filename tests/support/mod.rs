@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use authwarden::{
     build_app,
-    config::{OAuthConfig, OAuthProviderConfig},
+    config::{CorsConfig, OAuthConfig, OAuthProviderConfig},
     state::AppState,
 };
 use axum::{
@@ -43,6 +43,9 @@ pub fn app_state(db: PgPool, redis: redis::Client, oauth: OAuthConfig) -> Arc<Ap
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        cors: CorsConfig {
+            allowed_origins: vec![],
+        },
         oauth,
     })
 }

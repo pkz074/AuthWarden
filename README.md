@@ -44,6 +44,8 @@ Axum router
 - Logout and refresh-session revocation
 - Redis revocation cache
 - Redis-backed rate limiting for sensitive auth endpoints
+- Redis-backed password login lockout
+- Explicit allowlist-based CORS policy
 - Audit logs for auth/session events
 - HTML login and register pages
 - Docker Compose local stack
@@ -93,6 +95,7 @@ Axum router
 | `DATABASE_URL` | local Docker Postgres URL | PostgreSQL connection string |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection string |
 | `JWT_SECRET` | required | HMAC secret for JWT access tokens |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `GITHUB_CLIENT_ID` | unset | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | unset | GitHub OAuth app client secret |
 | `GITHUB_REDIRECT_URI` | unset | GitHub OAuth callback URL |
@@ -223,7 +226,5 @@ CI runs formatting, Clippy, unit tests, the Docker-backed integration flow, and 
 
 - Security headers
 - Request IDs and structured request logs
-- Password login lockout
-- Explicit CORS policy
 - Prometheus metrics
 - Dependency security audit

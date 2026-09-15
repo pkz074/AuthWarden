@@ -4,7 +4,13 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub redis_url: String,
+    pub cors: CorsConfig,
     pub oauth: OAuthConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct CorsConfig {
+    pub allowed_origins: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -33,18 +39,44 @@ impl AppConfig {
 
         let redis_url =
             env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let cors = CorsConfig::from_env();
         let oauth = OAuthConfig::from_env();
 
         Self {
             host,
             port,
             redis_url,
+            cors,
             oauth,
         }
     }
 
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+}
+
+impl CorsConfig {
+    fn from_env() -> Self {
+        let allowed_origins = env::var("CORS_ALLOWED_ORIGINS")
+            .ok()
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|origin| !origin.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Self { allowed_origins }
+    }
+
+    pub fn allows_origin(&self, origin: &str) -> bool {
+        self.allowed_origins
+            .iter()
+            .any(|allowed_origin| allowed_origin == origin)
     }
 }
 
@@ -157,12 +189,25 @@ mod tests {
         set_env("APP_HOST", "0.0.0.0");
         set_env("APP_PORT", "9090");
         set_env("REDIS_URL", "redis://localhost:6380");
+        set_env(
+            "CORS_ALLOWED_ORIGINS",
+            "https://app.example.com, https://admin.example.com",
+        );
 
         let config = AppConfig::from_env();
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 9090);
         assert_eq!(config.redis_url, "redis://localhost:6380");
+        assert_eq!(
+            config.cors.allowed_origins,
+            vec![
+                "https://app.example.com".to_string(),
+                "https://admin.example.com".to_string()
+            ]
+        );
+        assert!(config.cors.allows_origin("https://app.example.com"));
+        assert!(!config.cors.allows_origin("https://other.example.com"));
         assert_eq!(config.bind_addr(), "0.0.0.0:9090");
     }
 
@@ -179,6 +224,7 @@ mod tests {
         remove_env("APP_HOST");
         remove_env("APP_PORT");
         remove_env("REDIS_URL");
+        remove_env("CORS_ALLOWED_ORIGINS");
     }
 
     fn set_env(key: &str, value: &str) {

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use authwarden::{
-    build_app, config::OAuthConfig, middleware::security_headers::CONTENT_SECURITY_POLICY,
+    build_app,
+    config::{CorsConfig, OAuthConfig},
+    middleware::security_headers::CONTENT_SECURITY_POLICY,
     state::AppState,
 };
 use axum::{
@@ -25,6 +27,9 @@ async fn responses_include_security_headers() {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        cors: CorsConfig {
+            allowed_origins: vec![],
+        },
         oauth: OAuthConfig {
             github: None,
             google: None,
@@ -64,6 +69,9 @@ async fn error_responses_include_security_headers() {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        cors: CorsConfig {
+            allowed_origins: vec![],
+        },
         oauth: OAuthConfig {
             github: None,
             google: None,

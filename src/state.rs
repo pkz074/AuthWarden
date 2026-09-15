@@ -1,4 +1,4 @@
-use crate::config::OAuthConfig;
+use crate::config::{CorsConfig, OAuthConfig};
 use redis::Client;
 use sqlx::PgPool;
 
@@ -7,5 +7,6 @@ pub struct AppState {
     pub db: PgPool,
     pub redis: Client,
     pub jwt_secret: String,
+    pub cors: CorsConfig,
     pub oauth: OAuthConfig,
 }

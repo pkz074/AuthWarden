@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use authwarden::{
-    build_app, config::OAuthConfig, middleware::request_id::REQUEST_ID_HEADER, state::AppState,
+    build_app,
+    config::{CorsConfig, OAuthConfig},
+    middleware::request_id::REQUEST_ID_HEADER,
+    state::AppState,
 };
 use axum::{
     body::Body,
@@ -74,6 +77,9 @@ fn test_state() -> Arc<AppState> {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        cors: CorsConfig {
+            allowed_origins: vec![],
+        },
         oauth: OAuthConfig {
             github: None,
             google: None,

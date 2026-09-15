@@ -15,7 +15,7 @@ use crate::{
         session::{NewRefreshSession, TokenPair},
         user::NewUser,
     },
-    services::{password, refresh_token as refresh_tokens, token},
+    services::{login_lockout, password, refresh_token as refresh_tokens, token},
     state::AppState,
 };
 
@@ -52,18 +52,33 @@ pub async fn login(
     validate_login_form(&form)?;
     let email = normalize_email(&form.email);
 
-    let user = crate::db::users::find_user_by_email(&state.db, &email)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
+    match login_lockout::is_login_locked(&state.redis, &email).await {
+        Ok(true) => return Err(AppError::TooManyRequests),
+        Ok(false) => {}
+        Err(error) => {
+            tracing::warn!(?error, email, "failed to check password login lockout");
+        }
+    }
+
+    let Some(user) = crate::db::users::find_user_by_email(&state.db, &email).await? else {
+        record_failed_login(&state, &email).await;
+        return Err(AppError::Unauthorized);
+    };
 
     let Some(password_hash) = user.password_hash.as_deref() else {
+        record_failed_login(&state, &email).await;
         return Err(AppError::Unauthorized);
     };
 
     let password_is_valid = password::verify_password(&form.password, password_hash)?;
 
     if !password_is_valid {
+        record_failed_login(&state, &email).await;
         return Err(AppError::Unauthorized);
+    }
+
+    if let Err(error) = login_lockout::clear_login_failures(&state.redis, &email).await {
+        tracing::warn!(?error, email, "failed to clear password login failures");
     }
 
     let access_token = token::issue_access_token(&user, &state.jwt_secret)?;
@@ -86,6 +101,12 @@ pub async fn login(
     };
 
     Ok(Json(response).into_response())
+}
+
+async fn record_failed_login(state: &Arc<AppState>, email: &str) {
+    if let Err(error) = login_lockout::record_failed_login(&state.redis, email).await {
+        tracing::warn!(?error, email, "failed to record password login failure");
+    }
 }
 
 fn normalize_email(email: &str) -> String {

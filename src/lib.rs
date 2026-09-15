@@ -46,6 +46,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             state.clone(),
             middleware::rate_limit::rate_limit_sensitive_routes,
         ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::cors::apply_cors_policy,
+        ))
         .layer(axum_middleware::from_fn(
             middleware::security_headers::set_security_headers,
         ))

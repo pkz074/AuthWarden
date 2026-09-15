@@ -33,6 +33,7 @@ async fn main() {
         db,
         redis,
         jwt_secret,
+        cors: config.cors.clone(),
         oauth: config.oauth.clone(),
     });
 

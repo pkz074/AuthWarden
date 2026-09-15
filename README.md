@@ -231,9 +231,23 @@ kubectl apply -k k8s
 
 Ingress and TLS deployment notes are in `k8s/ingress-tls.md`.
 
-CI runs formatting, Clippy, unit tests, the Docker-backed integration flow, and a Docker image build. Pushes to `main` publish the Docker image to GitHub Container Registry as `ghcr.io/pkz074/authwarden`.
+CI runs formatting, Clippy, dependency audit, unit tests, the Docker-backed integration flow, and a Docker image build. Pushes to `main` publish the Docker image to GitHub Container Registry as `ghcr.io/pkz074/authwarden`.
 
-## Next Hardening Work
+## Current Verification
 
-- Security headers
-- Request IDs and structured request logs
+- `cargo fmt --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `make audit`
+- `cargo test`
+- `cargo test --tests -- --ignored`
+- `docker build -t authwarden .`
+- Fast line coverage: `56.22%`
+- Full Docker-backed line coverage: `87.75%`
+
+## Future Improvements
+
+- Make OAuth user/account creation transactional.
+- Move shared OAuth login completion into a service.
+- Decide whether browser auth should use secure cookies instead of bearer tokens.
+- Add structured JSON error responses.
+- Add CI coverage reporting.

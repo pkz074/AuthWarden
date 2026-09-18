@@ -1,6 +1,9 @@
 use authwarden::{build_app, config::AppConfig, state::AppState};
+use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -28,11 +31,18 @@ async fn main() {
 
     let redis =
         redis::Client::open(config.redis_url.clone()).expect("failed to create redis client");
+    let http_client = Client::builder()
+        .timeout(Duration::from_secs(config.oauth_http_timeout_seconds))
+        .build()
+        .expect("failed to create http client");
 
     let state = Arc::new(AppState {
         db,
         redis,
         jwt_secret,
+        trust_proxy_headers: config.trust_proxy_headers,
+        metrics_token: config.metrics_token.clone(),
+        http_client,
         cors: config.cors.clone(),
         oauth: config.oauth.clone(),
         metrics: Default::default(),
@@ -46,5 +56,10 @@ async fn main() {
 
     println!("listening on http://{}", config.bind_addr());
 
-    axum::serve(listener, app).await.expect("server failed");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("server failed");
 }

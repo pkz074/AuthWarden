@@ -70,6 +70,12 @@ jobs:
       - name: Run integration tests
         run: cargo test --tests -- --ignored
 
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Report fast line coverage
+        run: make coverage
+
   docker:
     name: Docker image build
     runs-on: ubuntu-latest

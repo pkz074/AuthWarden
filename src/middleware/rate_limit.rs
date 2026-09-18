@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     body::Body,
-    extract::State,
-    http::{HeaderMap, Method, Request},
+    extract::{ConnectInfo, State},
+    http::{Method, Request},
     middleware::Next,
     response::Response,
 };
 use redis::{AsyncCommands, Client};
 
-use crate::{errors::AppError, state::AppState};
+use crate::{errors::AppError, services::client_identity, state::AppState};
 
 pub const RATE_LIMIT_MAX_REQUESTS: u64 = 10;
 pub const RATE_LIMIT_WINDOW_SECONDS: i64 = 60;
@@ -26,7 +26,15 @@ pub async fn rate_limit_sensitive_routes(
         return Ok(next.run(request).await);
     }
 
-    let client_id = client_identifier(request.headers());
+    let direct_client_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect_info| connect_info.0.ip().to_string());
+    let client_id = client_identity::client_identifier(
+        request.headers(),
+        state.trust_proxy_headers,
+        direct_client_ip.as_deref(),
+    );
 
     match allow_request(&state.redis, &method, &path, &client_id).await {
         Ok(true) => Ok(next.run(request).await),
@@ -76,24 +84,6 @@ fn is_rate_limited_route(method: &Method, path: &str) -> bool {
     )
 }
 
-fn client_identifier(headers: &HeaderMap) -> String {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or("unknown")
-        .to_string()
-}
-
 fn rate_limit_key(method: &Method, path: &str, client_id: &str) -> String {
     let path = path.trim_start_matches('/').replace('/', ":");
     let client_id = client_id.replace([':', ' '], "_");
@@ -103,8 +93,6 @@ fn rate_limit_key(method: &Method, path: &str, client_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::HeaderValue;
-
     use super::*;
 
     #[test]
@@ -115,24 +103,5 @@ mod tests {
         assert!(is_rate_limited_route(&Method::GET, "/auth/github/callback"));
         assert!(!is_rate_limited_route(&Method::GET, "/login"));
         assert!(!is_rate_limited_route(&Method::GET, "/health"));
-    }
-
-    #[test]
-    fn extracts_first_forwarded_client_ip() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-forwarded-for",
-            HeaderValue::from_static("203.0.113.10, 10.0.0.1"),
-        );
-
-        assert_eq!(client_identifier(&headers), "203.0.113.10");
-    }
-
-    #[test]
-    fn falls_back_to_real_ip() {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-real-ip", HeaderValue::from_static("203.0.113.20"));
-
-        assert_eq!(client_identifier(&headers), "203.0.113.20");
     }
 }

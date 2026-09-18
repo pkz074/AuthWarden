@@ -6,3 +6,5 @@ metadata:
 data:
   APP_HOST: "0.0.0.0"
   APP_PORT: "8080"
+  TRUST_PROXY_HEADERS: "true"
+  OAUTH_HTTP_TIMEOUT_SECONDS: "5"

@@ -43,6 +43,9 @@ pub fn app_state(db: PgPool, redis: redis::Client, oauth: OAuthConfig) -> Arc<Ap
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        trust_proxy_headers: true,
+        metrics_token: None,
+        http_client: reqwest::Client::new(),
         cors: CorsConfig {
             allowed_origins: vec![],
         },
@@ -95,29 +98,35 @@ pub fn post_form(path: &str, fields: &[(&str, &str)]) -> Request<Body> {
 }
 
 pub fn post_raw(path: &str, body: &str) -> Request<Body> {
-    Request::builder()
+    let mut request = Request::builder()
         .method("POST")
         .uri(path)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(Body::from(body.to_string()))
-        .unwrap()
+        .unwrap();
+    add_test_client_header(&mut request);
+    request
 }
 
 pub fn get(path: &str) -> Request<Body> {
-    Request::builder()
+    let mut request = Request::builder()
         .method("GET")
         .uri(path)
         .body(Body::empty())
-        .unwrap()
+        .unwrap();
+    add_test_client_header(&mut request);
+    request
 }
 
 pub fn get_with_bearer(path: &str, authorization: &str) -> Request<Body> {
-    Request::builder()
+    let mut request = Request::builder()
         .method("GET")
         .uri(path)
         .header("Authorization", authorization)
         .body(Body::empty())
-        .unwrap()
+        .unwrap();
+    add_test_client_header(&mut request);
+    request
 }
 
 pub async fn response_json(response: axum::response::Response) -> Value {
@@ -151,3 +160,13 @@ pub async fn register_and_login(
 }
 
 use tower::ServiceExt;
+
+fn add_test_client_header(request: &mut Request<Body>) {
+    request
+        .headers_mut()
+        .insert("x-forwarded-for", unique_test_client_id().parse().unwrap());
+}
+
+fn unique_test_client_id() -> String {
+    format!("198.51.100.{}", Uuid::new_v4())
+}

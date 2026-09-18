@@ -41,7 +41,41 @@ async fn password_login_locks_after_repeated_failures() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_lockout_key_exists(&redis, &email).await;
+    assert_lockout_key_exists(&redis, &email, &client_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires Docker Postgres and Redis"]
+async fn password_login_lockout_is_scoped_to_client_identity() {
+    let db = test_db().await;
+    let redis = test_redis();
+    let state = app_state(db, redis, no_oauth());
+    let email = unique_email("lockout-client");
+    let password = "Password123";
+    let attacker_client_id = unique_client_id();
+    let real_client_id = unique_client_id();
+
+    register_and_login(state.clone(), &email, password).await;
+
+    for _ in 0..LOGIN_LOCKOUT_MAX_FAILURES {
+        let response = build_app(state.clone())
+            .oneshot(login_request(&email, "wrong-password", &attacker_client_id))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    let attacker_response = build_app(state.clone())
+        .oneshot(login_request(&email, password, &attacker_client_id))
+        .await
+        .unwrap();
+    assert_eq!(attacker_response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let real_response = build_app(state)
+        .oneshot(login_request(&email, password, &real_client_id))
+        .await
+        .unwrap();
+    assert_eq!(real_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -97,18 +131,18 @@ fn unique_client_id() -> String {
     format!("203.0.113.{}", uuid::Uuid::new_v4())
 }
 
-async fn assert_lockout_key_exists(redis: &redis::Client, email: &str) {
+async fn assert_lockout_key_exists(redis: &redis::Client, email: &str, client_id: &str) {
     let mut connection = redis
         .get_multiplexed_async_connection()
         .await
         .expect("connect to test redis");
 
     let exists: bool = connection
-        .exists(format!("login_lockout:{email}"))
+        .exists(format!("login_lockout:{email}:{client_id}"))
         .await
         .expect("read lockout key");
     let ttl: i64 = connection
-        .ttl(format!("login_lockout:{email}"))
+        .ttl(format!("login_lockout:{email}:{client_id}"))
         .await
         .expect("read lockout ttl");
 

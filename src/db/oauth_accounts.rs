@@ -1,4 +1,4 @@
-use sqlx::{Error as SqlxError, PgPool};
+use sqlx::{Error as SqlxError, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -21,6 +21,27 @@ pub async fn find_oauth_account_by_provider_id(
     .bind(provider)
     .bind(provider_user_id)
     .fetch_optional(pool)
+    .await
+    .map_err(|_| AppError::InternalServerError)?;
+
+    Ok(account)
+}
+
+pub async fn find_oauth_account_by_provider_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    provider: &str,
+    provider_user_id: &str,
+) -> Result<Option<OAuthAccount>, AppError> {
+    let account = sqlx::query_as::<_, OAuthAccount>(
+        r#"
+        SELECT id, user_id, provider, provider_user_id, provider_email, created_at, updated_at
+        FROM oauth_accounts
+        WHERE provider = $1 AND provider_user_id = $2
+        "#,
+    )
+    .bind(provider)
+    .bind(provider_user_id)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|_| AppError::InternalServerError)?;
 
@@ -69,6 +90,28 @@ pub async fn create_oauth_account(
     Ok(account)
 }
 
+pub async fn create_oauth_account_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    new_account: NewOAuthAccount,
+) -> Result<OAuthAccount, AppError> {
+    let account = sqlx::query_as::<_, OAuthAccount>(
+        r#"
+        INSERT INTO oauth_accounts (user_id, provider, provider_user_id, provider_email)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, user_id, provider, provider_user_id, provider_email, created_at, updated_at
+        "#,
+    )
+    .bind(new_account.user_id)
+    .bind(new_account.provider)
+    .bind(new_account.provider_user_id)
+    .bind(new_account.provider_email)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(map_create_oauth_account_error)?;
+
+    Ok(account)
+}
+
 pub async fn update_oauth_account_email(
     pool: &PgPool,
     account_id: Uuid,
@@ -85,6 +128,28 @@ pub async fn update_oauth_account_email(
     .bind(account_id)
     .bind(provider_email)
     .fetch_one(pool)
+    .await
+    .map_err(|_| AppError::InternalServerError)?;
+
+    Ok(account)
+}
+
+pub async fn update_oauth_account_email_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    account_id: Uuid,
+    provider_email: Option<String>,
+) -> Result<OAuthAccount, AppError> {
+    let account = sqlx::query_as::<_, OAuthAccount>(
+        r#"
+        UPDATE oauth_accounts
+        SET provider_email = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, user_id, provider, provider_user_id, provider_email, created_at, updated_at
+        "#,
+    )
+    .bind(account_id)
+    .bind(provider_email)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| AppError::InternalServerError)?;
 

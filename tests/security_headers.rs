@@ -7,9 +7,10 @@ use authwarden::{
     state::AppState,
 };
 use axum::{
-    body::Body,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
@@ -27,6 +28,9 @@ async fn responses_include_security_headers() {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        trust_proxy_headers: false,
+        metrics_token: None,
+        http_client: reqwest::Client::new(),
         cors: CorsConfig {
             allowed_origins: vec![],
         },
@@ -70,6 +74,9 @@ async fn error_responses_include_security_headers() {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        trust_proxy_headers: false,
+        metrics_token: None,
+        http_client: reqwest::Client::new(),
         cors: CorsConfig {
             allowed_origins: vec![],
         },
@@ -89,6 +96,8 @@ async fn error_responses_include_security_headers() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_security_headers(&response);
+    let body = response_json(response).await;
+    assert_eq!(body["error"], "github oauth is not configured");
 }
 
 fn assert_security_headers(response: &axum::response::Response) {
@@ -105,4 +114,9 @@ fn assert_security_headers(response: &axum::response::Response) {
         response.headers().get("content-security-policy").unwrap(),
         CONTENT_SECURITY_POLICY
     );
+}
+
+async fn response_json(response: axum::response::Response) -> Value {
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
 }

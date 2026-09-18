@@ -6,27 +6,35 @@ pub const LOGIN_LOCKOUT_MAX_FAILURES: u64 = 5;
 pub const LOGIN_LOCKOUT_FAILURE_WINDOW_SECONDS: u64 = 15 * 60;
 pub const LOGIN_LOCKOUT_SECONDS: u64 = 15 * 60;
 
-pub async fn is_login_locked(redis: &Client, email: &str) -> Result<bool, AppError> {
+pub async fn is_login_locked(
+    redis: &Client,
+    email: &str,
+    client_id: &str,
+) -> Result<bool, AppError> {
     let mut connection = redis
         .get_multiplexed_async_connection()
         .await
         .map_err(|_| AppError::InternalServerError)?;
 
     let locked = connection
-        .exists(lockout_key(email))
+        .exists(lockout_key(email, client_id))
         .await
         .map_err(|_| AppError::InternalServerError)?;
 
     Ok(locked)
 }
 
-pub async fn record_failed_login(redis: &Client, email: &str) -> Result<(), AppError> {
+pub async fn record_failed_login(
+    redis: &Client,
+    email: &str,
+    client_id: &str,
+) -> Result<(), AppError> {
     let mut connection = redis
         .get_multiplexed_async_connection()
         .await
         .map_err(|_| AppError::InternalServerError)?;
 
-    let key = failure_key(email);
+    let key = failure_key(email, client_id);
     let failure_count: u64 = connection
         .incr(&key, 1_u8)
         .await
@@ -41,7 +49,7 @@ pub async fn record_failed_login(redis: &Client, email: &str) -> Result<(), AppE
 
     if failure_count >= LOGIN_LOCKOUT_MAX_FAILURES {
         let _: () = connection
-            .set_ex(lockout_key(email), "1", LOGIN_LOCKOUT_SECONDS)
+            .set_ex(lockout_key(email, client_id), "1", LOGIN_LOCKOUT_SECONDS)
             .await
             .map_err(|_| AppError::InternalServerError)?;
     }
@@ -49,13 +57,17 @@ pub async fn record_failed_login(redis: &Client, email: &str) -> Result<(), AppE
     Ok(())
 }
 
-pub async fn clear_login_failures(redis: &Client, email: &str) -> Result<(), AppError> {
+pub async fn clear_login_failures(
+    redis: &Client,
+    email: &str,
+    client_id: &str,
+) -> Result<(), AppError> {
     let mut connection = redis
         .get_multiplexed_async_connection()
         .await
         .map_err(|_| AppError::InternalServerError)?;
 
-    let keys = [failure_key(email), lockout_key(email)];
+    let keys = [failure_key(email, client_id), lockout_key(email, client_id)];
     let _: () = connection
         .del(&keys)
         .await
@@ -64,16 +76,16 @@ pub async fn clear_login_failures(redis: &Client, email: &str) -> Result<(), App
     Ok(())
 }
 
-fn failure_key(email: &str) -> String {
-    format!("login_failures:{}", email_key(email))
+fn failure_key(email: &str, client_id: &str) -> String {
+    format!("login_failures:{}:{}", key_part(email), key_part(client_id))
 }
 
-fn lockout_key(email: &str) -> String {
-    format!("login_lockout:{}", email_key(email))
+fn lockout_key(email: &str, client_id: &str) -> String {
+    format!("login_lockout:{}:{}", key_part(email), key_part(client_id))
 }
 
-fn email_key(email: &str) -> String {
-    email.replace([':', ' '], "_")
+fn key_part(value: &str) -> String {
+    value.replace([':', ' '], "_")
 }
 
 #[cfg(test)]
@@ -83,12 +95,12 @@ mod tests {
     #[test]
     fn lockout_keys_escape_unsafe_characters() {
         assert_eq!(
-            failure_key(" test:user@example.com "),
-            "login_failures:_test_user@example.com_"
+            failure_key(" test:user@example.com ", " client:1 "),
+            "login_failures:_test_user@example.com_:_client_1_"
         );
         assert_eq!(
-            lockout_key(" test:user@example.com "),
-            "login_lockout:_test_user@example.com_"
+            lockout_key(" test:user@example.com ", " client:1 "),
+            "login_lockout:_test_user@example.com_:_client_1_"
         );
     }
 }

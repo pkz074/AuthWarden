@@ -77,6 +77,9 @@ fn test_state() -> Arc<AppState> {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        trust_proxy_headers: false,
+        metrics_token: None,
+        http_client: reqwest::Client::new(),
         cors: CorsConfig {
             allowed_origins: vec![],
         },

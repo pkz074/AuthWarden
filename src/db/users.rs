@@ -1,4 +1,4 @@
-use sqlx::{Error as SqlxError, PgPool};
+use sqlx::{Error as SqlxError, PgPool, Postgres, Transaction};
 
 use crate::{
     errors::AppError,
@@ -39,6 +39,25 @@ pub async fn create_oauth_user(pool: &PgPool, email: String) -> Result<User, App
     Ok(user)
 }
 
+pub async fn create_oauth_user_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    email: String,
+) -> Result<User, AppError> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        INSERT INTO users (email, password_hash)
+        VALUES ($1, NULL)
+        RETURNING id, email, password_hash
+        "#,
+    )
+    .bind(email)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(map_create_user_error)?;
+
+    Ok(user)
+}
+
 fn map_create_user_error(error: SqlxError) -> AppError {
     if let SqlxError::Database(database_error) = &error
         && database_error.code().as_deref() == Some("23505")
@@ -65,6 +84,25 @@ pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<Use
     Ok(user)
 }
 
+pub async fn find_user_by_email_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    email: &str,
+) -> Result<Option<User>, AppError> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, email, password_hash
+        FROM users
+        WHERE email = $1
+        "#,
+    )
+    .bind(email)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AppError::InternalServerError)?;
+
+    Ok(user)
+}
+
 pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, AppError> {
     let user = sqlx::query_as::<_, User>(
         r#"
@@ -75,6 +113,25 @@ pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, Ap
     )
     .bind(id)
     .fetch_optional(pool)
+    .await
+    .map_err(|_| AppError::InternalServerError)?;
+
+    Ok(user)
+}
+
+pub async fn find_user_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<User>, AppError> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, email, password_hash
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|_| AppError::InternalServerError)?;
 

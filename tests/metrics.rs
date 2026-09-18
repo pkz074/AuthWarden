@@ -64,7 +64,34 @@ async fn metrics_endpoint_reports_auth_session_counters() {
     assert!(body.contains("authwarden_logouts_total 1"));
 }
 
+#[tokio::test]
+async fn metrics_endpoint_requires_bearer_token_when_configured() {
+    let state = test_state_with_token(AppMetrics::default(), Some("metrics-secret".to_string()));
+
+    let missing = build_app(state.clone())
+        .oneshot(get("/metrics"))
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong = build_app(state.clone())
+        .oneshot(get_with_bearer("/metrics", "wrong-token"))
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+
+    let allowed = build_app(state)
+        .oneshot(get_with_bearer("/metrics", "metrics-secret"))
+        .await
+        .unwrap();
+    assert_eq!(allowed.status(), StatusCode::OK);
+}
+
 fn test_state(metrics: AppMetrics) -> Arc<AppState> {
+    test_state_with_token(metrics, None)
+}
+
+fn test_state_with_token(metrics: AppMetrics, metrics_token: Option<String>) -> Arc<AppState> {
     let db = PgPoolOptions::new()
         .connect_lazy(DATABASE_URL)
         .expect("create lazy postgres pool");
@@ -74,6 +101,9 @@ fn test_state(metrics: AppMetrics) -> Arc<AppState> {
         db,
         redis,
         jwt_secret: JWT_SECRET.to_string(),
+        trust_proxy_headers: false,
+        metrics_token,
+        http_client: reqwest::Client::new(),
         cors: CorsConfig {
             allowed_origins: vec![],
         },
@@ -83,6 +113,15 @@ fn test_state(metrics: AppMetrics) -> Arc<AppState> {
         },
         metrics,
     })
+}
+
+fn get_with_bearer(path: &str, token: &str) -> Request<Body> {
+    Request::builder()
+        .method("GET")
+        .uri(path)
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap()
 }
 
 fn get(path: &str) -> Request<Body> {

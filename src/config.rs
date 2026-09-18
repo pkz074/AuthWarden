@@ -4,6 +4,9 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub redis_url: String,
+    pub trust_proxy_headers: bool,
+    pub metrics_token: Option<String>,
+    pub oauth_http_timeout_seconds: u64,
     pub cors: CorsConfig,
     pub oauth: OAuthConfig,
 }
@@ -39,6 +42,12 @@ impl AppConfig {
 
         let redis_url =
             env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let trust_proxy_headers = env_bool("TRUST_PROXY_HEADERS");
+        let metrics_token = env_var_non_empty("METRICS_TOKEN");
+        let oauth_http_timeout_seconds = env::var("OAUTH_HTTP_TIMEOUT_SECONDS")
+            .unwrap_or_else(|_| "5".to_string())
+            .parse()
+            .expect("OAUTH_HTTP_TIMEOUT_SECONDS must be a valid number");
         let cors = CorsConfig::from_env();
         let oauth = OAuthConfig::from_env();
 
@@ -46,6 +55,9 @@ impl AppConfig {
             host,
             port,
             redis_url,
+            trust_proxy_headers,
+            metrics_token,
+            oauth_http_timeout_seconds,
             cors,
             oauth,
         }
@@ -119,6 +131,13 @@ fn env_var_non_empty(key: &str) -> Option<String> {
     env::var(key).ok().filter(|value| !value.trim().is_empty())
 }
 
+fn env_bool(key: &str) -> bool {
+    env::var(key)
+        .ok()
+        .map(|value| matches!(value.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -189,6 +208,9 @@ mod tests {
         set_env("APP_HOST", "0.0.0.0");
         set_env("APP_PORT", "9090");
         set_env("REDIS_URL", "redis://localhost:6380");
+        set_env("TRUST_PROXY_HEADERS", "true");
+        set_env("METRICS_TOKEN", "metrics-secret");
+        set_env("OAUTH_HTTP_TIMEOUT_SECONDS", "7");
         set_env(
             "CORS_ALLOWED_ORIGINS",
             "https://app.example.com, https://admin.example.com",
@@ -199,6 +221,9 @@ mod tests {
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 9090);
         assert_eq!(config.redis_url, "redis://localhost:6380");
+        assert!(config.trust_proxy_headers);
+        assert_eq!(config.metrics_token.as_deref(), Some("metrics-secret"));
+        assert_eq!(config.oauth_http_timeout_seconds, 7);
         assert_eq!(
             config.cors.allowed_origins,
             vec![
@@ -224,6 +249,9 @@ mod tests {
         remove_env("APP_HOST");
         remove_env("APP_PORT");
         remove_env("REDIS_URL");
+        remove_env("TRUST_PROXY_HEADERS");
+        remove_env("METRICS_TOKEN");
+        remove_env("OAUTH_HTTP_TIMEOUT_SECONDS");
         remove_env("CORS_ALLOWED_ORIGINS");
     }
 

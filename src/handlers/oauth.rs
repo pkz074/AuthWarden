@@ -3,7 +3,6 @@ use axum::{
     extract::{Query, State},
     response::{IntoResponse, Redirect, Response},
 };
-use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
@@ -12,11 +11,13 @@ use crate::{
     db,
     errors::AppError,
     models::{
-        oauth_account::NewOAuthAccount,
         session::{NewRefreshSession, TokenPair},
         user::User,
     },
-    services::{github_oauth, google_oauth, oauth_state, refresh_token as refresh_tokens, token},
+    services::{
+        github_oauth, google_oauth, oauth_login, oauth_state, refresh_token as refresh_tokens,
+        token,
+    },
     state::AppState,
 };
 
@@ -57,12 +58,12 @@ pub async fn github_callback(
     oauth_state::validate_oauth_state(&state.redis, &query.state, github_oauth::GITHUB_PROVIDER)
         .await?;
 
-    let client = Client::new();
     let access_token =
-        github_oauth::exchange_code_for_access_token(&client, config, &query.code).await?;
-    let profile = github_oauth::fetch_profile(&client, &access_token).await?;
-    let user = find_or_create_oauth_user(
-        &state,
+        github_oauth::exchange_code_for_access_token(&state.http_client, config, &query.code)
+            .await?;
+    let profile = github_oauth::fetch_profile(&state.http_client, &access_token).await?;
+    let user = oauth_login::find_or_create_oauth_user(
+        &state.db,
         github_oauth::GITHUB_PROVIDER,
         profile.provider_user_id,
         profile.email,
@@ -107,12 +108,12 @@ pub async fn google_callback(
     oauth_state::validate_oauth_state(&state.redis, &query.state, google_oauth::GOOGLE_PROVIDER)
         .await?;
 
-    let client = Client::new();
     let access_token =
-        google_oauth::exchange_code_for_access_token(&client, config, &query.code).await?;
-    let profile = google_oauth::fetch_profile(&client, &access_token).await?;
-    let user = find_or_create_oauth_user(
-        &state,
+        google_oauth::exchange_code_for_access_token(&state.http_client, config, &query.code)
+            .await?;
+    let profile = google_oauth::fetch_profile(&state.http_client, &access_token).await?;
+    let user = oauth_login::find_or_create_oauth_user(
+        &state.db,
         google_oauth::GOOGLE_PROVIDER,
         profile.provider_user_id,
         profile.email,
@@ -124,49 +125,6 @@ pub async fn google_callback(
     state.metrics.record_oauth_auth_success();
 
     Ok(Json(response).into_response())
-}
-
-async fn find_or_create_oauth_user(
-    state: &AppState,
-    provider: &str,
-    provider_user_id: String,
-    provider_email: String,
-) -> Result<User, AppError> {
-    if let Some(account) = db::oauth_accounts::find_oauth_account_by_provider_id(
-        &state.db,
-        provider,
-        &provider_user_id,
-    )
-    .await?
-    {
-        db::oauth_accounts::update_oauth_account_email(
-            &state.db,
-            account.id,
-            Some(normalize_email(&provider_email)),
-        )
-        .await?;
-
-        return db::users::find_user_by_id(&state.db, account.user_id)
-            .await?
-            .ok_or(AppError::Unauthorized);
-    }
-
-    let email = normalize_email(&provider_email);
-    let user = match db::users::find_user_by_email(&state.db, &email).await? {
-        Some(user) => user,
-        None => db::users::create_oauth_user(&state.db, email.clone()).await?,
-    };
-
-    let new_account = NewOAuthAccount {
-        user_id: user.id,
-        provider: provider.to_string(),
-        provider_user_id,
-        provider_email: Some(email),
-    };
-
-    db::oauth_accounts::create_oauth_account(&state.db, new_account).await?;
-
-    Ok(user)
 }
 
 async fn issue_session_tokens(state: &AppState, user: &User) -> Result<TokenPair, AppError> {
@@ -187,8 +145,4 @@ async fn issue_session_tokens(state: &AppState, user: &User) -> Result<TokenPair
         access_token,
         refresh_token,
     })
-}
-
-fn normalize_email(email: &str) -> String {
-    email.trim().to_lowercase()
 }

@@ -1,10 +1,11 @@
 use axum::{
     Json,
-    extract::{Form, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Form, State},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 
@@ -15,7 +16,7 @@ use crate::{
         session::{NewRefreshSession, TokenPair},
         user::NewUser,
     },
-    services::{login_lockout, password, refresh_token as refresh_tokens, token},
+    services::{client_identity, login_lockout, password, refresh_token as refresh_tokens, token},
     state::AppState,
 };
 
@@ -47,6 +48,8 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
     if let Err(error) = validate_login_form(&form) {
@@ -55,8 +58,14 @@ pub async fn login(
     }
 
     let email = normalize_email(&form.email);
+    let direct_client_ip = connect_info.map(|connect_info| connect_info.0.ip().to_string());
+    let client_id = client_identity::client_identifier(
+        &headers,
+        state.trust_proxy_headers,
+        direct_client_ip.as_deref(),
+    );
 
-    match login_lockout::is_login_locked(&state.redis, &email).await {
+    match login_lockout::is_login_locked(&state.redis, &email, &client_id).await {
         Ok(true) => {
             state.metrics.record_password_auth_failure();
             return Err(AppError::TooManyRequests);
@@ -68,13 +77,13 @@ pub async fn login(
     }
 
     let Some(user) = crate::db::users::find_user_by_email(&state.db, &email).await? else {
-        record_failed_login(&state, &email).await;
+        record_failed_login(&state, &email, &client_id).await;
         state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     };
 
     let Some(password_hash) = user.password_hash.as_deref() else {
-        record_failed_login(&state, &email).await;
+        record_failed_login(&state, &email, &client_id).await;
         state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     };
@@ -82,13 +91,19 @@ pub async fn login(
     let password_is_valid = password::verify_password(&form.password, password_hash)?;
 
     if !password_is_valid {
-        record_failed_login(&state, &email).await;
+        record_failed_login(&state, &email, &client_id).await;
         state.metrics.record_password_auth_failure();
         return Err(AppError::Unauthorized);
     }
 
-    if let Err(error) = login_lockout::clear_login_failures(&state.redis, &email).await {
-        tracing::warn!(?error, email, "failed to clear password login failures");
+    if let Err(error) = login_lockout::clear_login_failures(&state.redis, &email, &client_id).await
+    {
+        tracing::warn!(
+            ?error,
+            email,
+            client_id,
+            "failed to clear password login failures"
+        );
     }
 
     let access_token = token::issue_access_token(&user, &state.jwt_secret)?;
@@ -114,9 +129,14 @@ pub async fn login(
     Ok(Json(response).into_response())
 }
 
-async fn record_failed_login(state: &Arc<AppState>, email: &str) {
-    if let Err(error) = login_lockout::record_failed_login(&state.redis, email).await {
-        tracing::warn!(?error, email, "failed to record password login failure");
+async fn record_failed_login(state: &Arc<AppState>, email: &str, client_id: &str) {
+    if let Err(error) = login_lockout::record_failed_login(&state.redis, email, client_id).await {
+        tracing::warn!(
+            ?error,
+            email,
+            client_id,
+            "failed to record password login failure"
+        );
     }
 }
 
